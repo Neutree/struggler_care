@@ -1,0 +1,159 @@
+menu "ESP QCloud Configuration"
+    config QCLOUD_MASS_MANUFACTURE
+        bool "ESP QCloud Mass Manufacture"
+        default n
+        help
+            Write authentication information through flash tool
+
+        config QCLOUD_FACTRY_PARTITION_NAME
+            depends on QCLOUD_MASS_MANUFACTURE
+            string "ESP QCloud Factory Partition Name"
+            default "fctry"
+            help
+                Factory NVS Partition name which will have the QCloud IOTHUB connectivity credentials.
+
+        config QCLOUD_FACTRY_PARTITION_NAMESPACE
+            depends on QCLOUD_MASS_MANUFACTURE
+            string "ESP QCloud Factory Partition NVS Namespace"
+            default "qcloud-key"
+            help
+                Factory NVS Partition name which will have the QCloud IOTHUB connectivity credentials.
+
+        config QCLOUD_PRODUCT_ID
+            depends on !QCLOUD_MASS_MANUFACTURE
+            string "Product ID"
+            default "PRODUCT_ID"
+            help
+                Set the Product ID.
+            
+        config QCLOUD_DEVICE_NAME
+            depends on !QCLOUD_MASS_MANUFACTURE
+            string "Device Name"
+            default "DEVICE_NAME"
+            help
+                Set the Device Name.
+            
+        config QCLOUD_DEVICE_SECRET
+            depends on !QCLOUD_MASS_MANUFACTURE
+            string "Device Secret"
+            default "DEVICE_SECRET"
+            help
+                Set the Device Secret.
+
+    menu "ESP QCloud OTA Config"
+        config QCLOUD_SKIP_VERSION_CHECK
+            bool "Skip firmware version check"
+            default y
+            help
+                This allows you to skip the firmware version check. Useful during development,
+                but not for production.
+
+        config QCLOUD_SKIP_PROJECT_NAME_CHECK
+            bool "Skip project name check"
+            default n
+            help
+                This allows you to skip the project name check.
+
+        config QCLOUD_USE_HTTPS_UPDATA
+            bool "Use https updata"
+            default n
+            help
+                This allows you to use https updata firmware.
+    endmenu
+
+    menu "QCloud utils"
+        choice QCLOUD_MEM_ALLOCATION_LOCATION
+            prompt "The memory location allocated by QCLOUD_MALLOC QCLOUD_CALLOC and QCLOUD_REALLOC"
+            help 
+                choice where to allocate memory, can be SPIRAM or default
+
+            config QCLOUD_MEM_ALLOCATION_DEFAULT
+                bool "default allocation strategy"
+            config QCLOUD_MEM_ALLOCATION_SPIRAM
+                depends on ESP32S2_SPIRAM_SUPPORT || ESP32_SPIRAM_SUPPORT
+                bool "allocate memory in SPIRAM"
+        endchoice
+            
+        config QCLOUD_MEM_DEBUG
+            bool "Memory debug"
+            default y
+            help
+                Memory debug.
+
+        config QCLOUD_MEM_DBG_INFO_MAX
+            int "QCloud Memory debug record max."
+            default 128
+            help
+                Config QCloud Memory debug record max.
+
+        config QCLOUD_NVS_NAMESPACE
+            string "Namespace where data is stored in NVS"
+            default "qcloud_app"
+            help
+                Namespace where data is stored in NVS.
+
+        config QCLOUD_REBOOT_UNBROKEN_INTERVAL_TIMEOUT
+            int "Continuous reboot interval(ms)"
+            default 3000
+            help
+            Continuous reboot interval.
+
+        config QCLOUD_REBOOT_UNBROKEN_FALLBACK_COUNT
+            int "Continuous restart triggers version rollback"
+            default 30
+            help
+            Continuous restart triggers version rollback.
+    endmenu
+
+    menu "ESP QCloud Log Config"
+        config QCLOUD_LOG_PARTITION_LABEL_DATA
+            string "Store log info partition label"
+            default "log_info"
+            help
+                Store log info partition label.
+            
+        config QCLOUD_LOG_PARTITION_LABEL_NVS
+            string "Store log status partition label"
+            default "log_status"
+            help
+                Store log status partition label.
+
+        config QCLOUD_LOG_FILE_MAX_SIZE
+            int "Output the save the file size of the log"
+            range 8196 131072
+            default 65536
+            help
+                Output the Save the file size of the log
+
+        config QCLOUD_LOG_PARTITION_OFFSET
+            int "Offset of the log information partition"
+            range 0 524288
+            default 0
+            help
+                Offset of the log information partition
+
+        config QCLOUD_PRINTF_ENABLE
+            bool "Output the `printf` information of the QCloud module"
+            default n
+            help
+                Output the `printf` information of the QCloud module
+    endmenu
+
+    choice QCLOUD_CONSOLE_UART_NUM
+        prompt "UART for console input"
+        default QCLOUD_CONSOLE_UART_NUM_0
+        help
+            UART to be selected for serial console.
+
+        config QCLOUD_CONSOLE_UART_NUM_0
+            bool "UART0"
+        config QCLOUD_CONSOLE_UART_NUM_1
+            bool "UART1"
+    endchoice
+
+    config QCLOUD_CONSOLE_UART_NUM
+        int
+        default 0 if QCLOUD_CONSOLE_UART_NUM_0
+        default 1 if QCLOUD_CONSOLE_UART_NUM_1
+
+endmenu
