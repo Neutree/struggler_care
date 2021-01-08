@@ -14,7 +14,7 @@ class Explorer_AT:
         self.device_key = None
         self.send_id = 0
         self.need_report = True
-    
+
     def config(self, product_key, device_name, device_key):
         cmd = 'AT+TCDEVINFOSET=1,"{}","{}","{}"'.format(
             product_key, device_name, device_key
@@ -24,13 +24,13 @@ class Explorer_AT:
         self.device_key = device_key
         ack = self._cmd(cmd, ["+TCDEVINFOSET:OK"], timeout=3)
 
-    def smartconfig(self):
+    def smartconfig(self, timeout=60):
         cmd_stop = "AT+TCSTOPSMART"
         cmd_start = "AT+TCSTARTSMART"
         # print("--now stop smartconfig")
         # ack = self._cmd(cmd_stop, "OK", timeout=3) # this will cause reboot
         print("--now start smartconfig")
-        ack = self._cmd(cmd_start, ["+TCSTARTSMART:WIFI_CONNECT_SUCCESS"], timeout=60)
+        ack = self._cmd(cmd_start, ["+TCSTARTSMART:WIFI_CONNECT_SUCCESS"], timeout=timeout)
         print("--now smartconfig end")
 
     def connect(self):
@@ -51,6 +51,23 @@ class Explorer_AT:
         cmd = 'AT+TCMQTTPUB="$thing/up/property/{}/{}",1,"{}"'.format(self.product_key, self.device_name, cmd)
         self.send_id += 1
         ack = self._cmd(cmd, ["+TCMQTTPUB:OK"], timeout=10)
+
+    def wifi_reset(self, rest_button):
+        rest_button.value(0)
+        time.sleep_ms(200)
+        rest_button.value(1)
+        read = b""
+        while 1:
+            time.sleep_ms(100)
+            msg = self.uart.read()
+            if msg:
+                read += msg
+                if b"ready\r\n" in read:
+                    break
+            if time.ticks_ms() - t > 5000:
+                raise Exception("reset timeout")
+        time.sleep_ms(200)
+        read = uart.read()
 
     def _cmd(self, cmd, expected=[], fail_ack=["ERROR"], timeout=6):
         cmd += "\r\n"
@@ -152,7 +169,7 @@ if __name__ == "__main__":
     wifi_reset(uart)
     read = uart.read()
     print("reset ok")
-    
+
     def on_control(msg):
         for key in msg:
             print("control {}:{}".format(key, msg[key]))
@@ -160,8 +177,8 @@ if __name__ == "__main__":
     explorer = Explorer_AT(uart, on_control)
     print("--config")
     explorer.config("1WAN4M5NPX", "device_01", "PHsWVCZkf9IaPnkhZkG4Rg==")
-    # print("--start smartconfig")
-    # explorer.smartconfig()
+    print("--start smartconfig")
+    explorer.smartconfig()
     print("--connect")
     explorer.connect()
     data = {
