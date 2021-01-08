@@ -13,8 +13,8 @@ class Explorer_AT:
         self.device_name = None
         self.device_key = None
         self.send_id = 0
-        self.need_report = False
         self.data = {}
+        self.data_changed_keys = []  # [ [], []]
 
     def config(self, product_key, device_name, device_key, product_secret=None):
         if not product_secret:
@@ -54,7 +54,7 @@ class Explorer_AT:
         ack = self._cmd(cmd_sub, ["+TCMQTTSUB:OK"], ["+TCMQTTSUB:FAIL", "ERROR"], timeout=10)
 
 
-    def report(self, data):
+    def report_(self, data):
         data = json.dumps(data)
         cmd = '{}"clientToken": "msgpub-token-{}", "method": "report", "params": {}{}'.format(
              "{", "{:012d}".format(self.send_id),
@@ -137,12 +137,36 @@ class Explorer_AT:
                 break
         raise Exception("cmd ack error: {}, ack: {}".format(cmd, ack))
 
+    def notify_report(self, keys):
+        self.data_changed_keys = list(keys)
+    
+    def report(self, keys):
+        data = {}
+        for key in keys:
+            data[key] = self.data[key]
+        print("--report:", data)
+        self.report_(data)
+        print("--report success")
+
     def run(self):
-        if self.need_report:
-            print("--report:", self.data)
-            self.report(self.data)
-            print("--report success")
-            self.need_report = False
+        if len(self.data_changed_keys) > 0:
+            data = {}
+            for key in self.data_changed_keys:
+                if type(key) == list:
+                    data0 = {}
+                    for key0 in key:
+                        data0[key0] = self.data[key0]
+                    if data0:
+                        print("--report:", data0)
+                        self.report_(data0)
+                        print("--report success")
+                else:
+                    data[key] = self.data[key]
+            if data:
+                print("--report:", data)
+                self.report_(data)
+                print("--report success")
+            self.data_changed_keys = []
         msg = self.uart.read()
         if msg:
             self.msg += msg

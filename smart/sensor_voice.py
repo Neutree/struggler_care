@@ -38,11 +38,24 @@ class App:
         self.server_conn = False
         self.show_text = ""
         self.button_down_t = -1
+        self.explorer.data = {
+            "pm2_5": 1000,
+            "pm1_0": 1000,
+            "pm10": 1000,
+            "light": 0,
+            "hcho_ug": 1000,
+            "hcho_ppb": 1000
+        }
 
     def show(self, text=None, wifi_ip=None, server_conn=None, append=False, print_text=True):
         if not text is None:
             if append:
-                self.show_text += text
+                self.show_text += text + "\n"
+                if len(self.show_text) > 1024:
+                    self.show_text = self.show_text[:1024]
+                temp = self.show_text.split("\n")
+                if len(temp) > 6:
+                    self.show_text = "\n".join(temp[-6:])
             else:
                 self.show_text = text
             if print_text:
@@ -57,45 +70,65 @@ class App:
         if self.led_g.value() == 0:
             return True
         return False
-    
-    def set_light(self, on):
+
+    def set_data_light(self, on):
         self.led_g.value(0 if on else 1)
+        self.explorer.data["light"] = 1 if on else 0
     
+    def set_data_pm2_5(self, pm2_5, pm1_0, pm10):
+        self.explorer.data["pm2_5"] = pm2_5
+        self.explorer.data["pm1_0"] = pm1_0
+        self.explorer.data["pm1_0"] = pm10
+    
+    def set_data_hcho(self, ug, ppb):
+        self.explorer.data["hcho_ug"] = ug
+        self.explorer.data["hcho_ppb"] = ppb
+
     def set_hint_led(self, on):
         self.led_b.value(0 if on else 1)
 
     def on_control(self, msg):
         for key in msg:
-            print("control {}:{}".format(key, msg[key]))
+            info = "control {}:{}".format(key, msg[key])
+            self.show(text=info, append=True, print_text=True)
+            if key == "light":
+                self.set_data_light(True if msg[key]==1 else False)
+        self.explorer.notify_report(msg.keys())
 
     def try_connect(self):
         ip = self.explorer.get_ip()
         self.show(wifi_ip=ip)
         print("IP:", ip)
         if ip:
-            text = "config...\n"
+            text = "config..."
             self.show(text=text, print_text=True)
             self.explorer.config(self.product_key, self.device_name, self.device_key, self.product_secret)
             text ="--config ok"
             self.show(text=text, append=True, print_text=True)
-            text = "connect to server...\n"
+            text = "connect to server..."
             self.show(text=text, append=True, print_text=True)
             try:
                 self.explorer.connect()
                 self.show(text="connect to server ok", server_conn=True, append=True, print_text=True)
-                self.explorer.need_report = True
+                self.on_connect()
             except Exception as e:
                 self.explorer.server_conn = False
                 print("--connect expoler fail: ", e)
                 self.show(text="connect server fail", server_conn=False, append=True, print_text=True)
         else:
             print("no IP, wait or long push func button to start config WiFi")
-            text = "Wait or long push button to config WiFi\n"
+            text = "Wait or long push button to config WiFi"
             self.show(text=text)
+
+    def on_connect(self):
+        keys = list(self.explorer.data.keys())
+        keys = [keys[:len(keys)//2], keys[len(keys)//2:]]
+        print("on_connect", keys)
+        self.explorer.notify_report(keys)
 
     def main_loop(self):
         if not self.wifi_ip:
-            time.sleep_ms(500)
+            time.sleep_ms(2000)
             self.try_connect()
 
         if self.button.value() == 0:
@@ -116,6 +149,7 @@ class App:
                                 wifi_ip = self.explorer.get_ip()
                                 print("-- smartconfig success, ip:", wifi_ip)
                                 self.show(wifi_ip=wifi_ip, server_conn=True)
+                                self.on_connect()
                             except Exception:
                                 print("--[ERROR] smartconfig fail")
                                 self.show(wifi_ip="null", server_conn=False)
@@ -144,12 +178,11 @@ class App:
         img.draw_string(pos[0], pos[1], self.show_text, color=color, scale=scale)
         lcd.display(img)
         del img
-    
+
 
 
     def init(self):
-        print("reset...")
-        text = "reset...\n"
+        text = "reset..."
         self.show(text=text)
         self.explorer.wifi_reset(self.wifi_rst_btn)
         print("reset ok")
@@ -160,9 +193,9 @@ class App:
             self.device_name = mac.replace(":", "_")
         print("device name:", self.device_name)
 
-        # print("reset config")
-        # self.explorer.restore_config()
-        # print("reset config ok")
+        #print("reset config")
+        #self.explorer.restore_config()
+        #print("reset config ok")
 
     def run(self):
         while 1:
@@ -174,12 +207,8 @@ if __name__ == "__main__":
     # app = App("1WAN4M5NPX", None, None, "5aSx6oJozEh2rT9CtAIlzVeI")
     # app = App("1WAN4M5NPX", "device_01", "JvTXVmtGJQXVBboVCFRTDQ==")
     app = App("1WAN4M5NPX", "device_02", "vQsu7B6unW+p4fxSZWUBRg==")
-    app.data = {
-        "pm2_5": 0,
-        "pm1_0": 0,
-        "pm10": 0,
-        "light": 0,
-    }
+    # app = App("1WAN4M5NPX", "device_03", "73mtaGsWW1QHttzOYGRggA==")
+
     while 1:
         try:
             app.init()
@@ -192,7 +221,5 @@ if __name__ == "__main__":
             err_str = err_str.getvalue()
             print(err_str)
             app.show( text=str(err_str))
-            time.sleep(5)
-            while 1:
-                pass
+            time.sleep_ms(5000)
 
