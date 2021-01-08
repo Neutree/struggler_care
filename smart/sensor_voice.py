@@ -109,6 +109,8 @@ class Explorer_AT:
                         self.on_control(pub_msg)
                     self.msg = self.msg[idx+2:] # remove "+TCMQTTRCVPUB:...\r\n"
 
+def main_loop():
+    pass
 
 if __name__ == "__main__":
     from Maix import GPIO
@@ -171,8 +173,10 @@ if __name__ == "__main__":
         "light": is_light_on(),
     }
     print("--connect ok")
+
     while 1:
         explorer.run()
+        main_loop()
 
 
 
