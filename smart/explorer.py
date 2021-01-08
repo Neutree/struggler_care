@@ -13,19 +13,30 @@ class Explorer_AT:
         self.device_name = None
         self.device_key = None
         self.send_id = 0
-        self.need_report = True
+        self.need_report = False
+        self.data = {}
 
-    def config(self, product_key, device_name, device_key):
-        cmd = 'AT+TCDEVINFOSET=1,"{}","{}","{}"'.format(
-            product_key, device_name, device_key
-        )
-        cmd2 = 'AT+CWAUTOCONN'
+    def config(self, product_key, device_name, device_key, product_secret=None):
+        if not product_secret:
+            cmd = 'AT+TCDEVINFOSET=1,"{}","{}","{}"'.format(
+                product_key, device_name, device_key
+            )
+            ack = self._cmd(cmd, ["+TCDEVINFOSET:OK"], timeout=3)
+        else: # auto register
+            cmd = 'AT+TCPRDINFOSET=1,"{}","{}","{}"'.format(
+                product_key, product_secret, device_name
+            )
+            cmd2 = 'AT+TCDEVREG'
+            ack = self._cmd(cmd, ["+TCPRDINFOSET:OK"], timeout=3)
+            ack = self._cmd(cmd2, ["+TCDEVREG:OK", "+TCDEVREG:FAIL,1021"], ["+TCDEVREG:FAIL"], timeout=15) # 1021 already registerd
         self.product_key = product_key
         self.device_name = device_name
         self.device_key = device_key
-        ack = self._cmd(cmd, ["+TCDEVINFOSET:OK"], timeout=3)
-        ack = self._cmd(cmd2, ["OK"], timeout=1)
-        
+        self.product_secret = product_secret
+            
+    def restore_config(self):
+        cmd = 'AT+TCRESTORE'
+        ack = self._cmd(cmd, ["OK"], timeout=3)
 
     def smartconfig(self, timeout=120):
         cmd_stop = "AT+TCSTOPSMART"
@@ -39,7 +50,7 @@ class Explorer_AT:
     def connect(self):
         cmd = "AT+TCMQTTCONN=1,5000,240,1,1"
         cmd_sub = 'AT+TCMQTTSUB="$thing/down/property/{}/{}",0'.format(self.product_key, self.device_name)
-        ack = self._cmd(cmd, ["+TCMQTTCONN:OK"], timeout=10)
+        ack = self._cmd(cmd, ["+TCMQTTCONN:OK"], ["+TCMQTTCONN:FAIL"], timeout=10)
         ack = self._cmd(cmd_sub, ["+TCMQTTSUB:OK"], ["+TCMQTTSUB:FAIL", "ERROR"], timeout=10)
 
 
@@ -60,6 +71,7 @@ class Explorer_AT:
         time.sleep_ms(200)
         rest_button.value(1)
         read = b""
+        t = time.ticks_ms()
         while 1:
             time.sleep_ms(100)
             msg = self.uart.read()
@@ -70,17 +82,34 @@ class Explorer_AT:
             if time.ticks_ms() - t > 5000:
                 raise Exception("reset timeout")
         time.sleep_ms(200)
-        read = uart.read()
+        read = self.uart.read()
     
     def get_ip(self):
         cmd = "AT+CIFSR"
-        ack = self._cmd(cmd, ["OK"], ["ERROR"], timeout=2)
+        try:
+            ack = self._cmd(cmd, ["OK"], ["ERROR"], timeout=2)
+        except Exception as e:
+            print("--[ERROR] AT ack erro:", e)
+            return ""
         # 'AT+CIFSR\r\n+CIFSR:STAIP,"0.0.0.0"\r\n+CIFSR:STAMAC,"18:fe:34:de:a6:00"\r\n\r\nOK\r\n'
         mat = ure.match('.*CIFSR:STAIP\,"(.*)".*CIFSR.*', ack)
         if mat:
             ip = mat.group(1)
+            if "0.0.0.0" in ip:
+                return ""
             return ip
-        return "null"
+        return ""
+    
+    def get_mac(self):
+        cmd = "AT+CIFSR"
+        ack = self._cmd(cmd, ["OK"], ["ERROR"], timeout=2)
+        print(ack)
+        # 'AT+CIFSR\r\n+CIFSR:STAIP,"0.0.0.0"\r\n+CIFSR:STAMAC,"18:fe:34:de:a6:00"\r\n\r\nOK\r\n'
+        mat = ure.match('.*CIFSR:STAMAC\,"(.*)"\r\n.*', ack)
+        if mat:
+            mac = mat.group(1)
+            return mac
+        return ""
         
 
 
@@ -110,9 +139,8 @@ class Explorer_AT:
 
     def run(self):
         if self.need_report:
-            print("--report:", data)
-            data['pm10'] += 1
-            explorer.report(data)
+            print("--report:", self.data)
+            self.report(self.data)
             print("--report success")
             self.need_report = False
         msg = self.uart.read()
