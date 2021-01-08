@@ -64,7 +64,7 @@ class App:
         self.pms7003.set_data_mode(active = False)
 
         self.pms7003_up_interval = 20 # s
-        self._pms7003_last_up_t = 0
+        self._pms7003_last_up_t = -20
     
     def _init_hcho(self):
         fm.register(34, fm.fpioa.UART3_TX, force=True)
@@ -76,7 +76,7 @@ class App:
         self.ws_h3.set_data_mode(active = False)
 
         self.ws_h3_up_interval = 20 # s
-        self._ws_h3_last_up_t = 0
+        self._ws_h3_last_up_t = -20
 
     def show(self, text=None, wifi_ip=None, server_conn=None, append=False, print_text=True):
         if not text is None:
@@ -121,12 +121,14 @@ class App:
         self.explorer.data["pm1_0"] = data["pm1.0"]
         self.explorer.data["pm10"] = data["pm10"]
         self.explorer.notify_report(["pm2_5", "pm1_0", "pm10"])
+        self.show()
 
     def on_hcho_data(self, data):
         print("--read hcho data:", data)
         self.explorer.data["hcho_ug"] = data["value_ug_m3"]
         self.explorer.data["hcho_ppb"] = data["value_ppb"]
         self.explorer.notify_report(["hcho_ug", "hcho_ppb"])
+        self.show()
 
     def set_hint_led(self, on):
         self.led_b.value(0 if on else 1)
@@ -210,10 +212,10 @@ class App:
             self.button_down_t = -1
             # sensors
             if self.server_conn:
-                if time.ticks_ms() - self._pms7003_last_up_t > self.pms7003_up_interval * 1000: # TODO: overflow deal
+                if time.ticks_ms() - self._pms7003_last_up_t * 1000 > self.pms7003_up_interval * 1000: # TODO: overflow deal
                     self.pms7003.run()
                     self._pms7003_last_up_t = time.ticks_ms()
-                if time.ticks_ms() - self._ws_h3_last_up_t > self.ws_h3_up_interval * 1000: # TODO: overflow deal
+                if time.ticks_ms() - self._ws_h3_last_up_t * 1000 > self.ws_h3_up_interval * 1000: # TODO: overflow deal
                     self.ws_h3.run()
                     self._ws_h3_last_up_t = time.ticks_ms()
 
@@ -228,6 +230,9 @@ class App:
         else:
             color = (255, 0, 0)
         img.draw_circle(300, 7, 6, color=color, fill=True)
+        img.draw_string(0,180, "PM1.0: {} ug/m3".format(self.explorer.data['pm1_0']), color=(255, 255, 255))
+        img.draw_string(100,180, "PM2.5: {} ug/m3".format(self.explorer.data['pm2_5']), color=(255, 255, 255))
+        img.draw_string(200,180, "PM10: {} ug/m3".format(self.explorer.data['pm10']), color=(255, 255, 255))
         return img
 
     def show_update(self):
@@ -282,6 +287,5 @@ if __name__ == "__main__":
             err_str = err_str.getvalue()
             print(err_str)
             app.show( text=str(err_str))
-            break
             time.sleep_ms(5000)
 
