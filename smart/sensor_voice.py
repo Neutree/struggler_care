@@ -7,6 +7,7 @@ from Maix import GPIO
 from machine import UART
 from fpioa_manager import fm
 from pms7003 import PMS7003
+from ws_h3 import WS_H3
 
 
 class App:
@@ -51,6 +52,7 @@ class App:
         }
 
         self._init_pm2_5()
+        self._init_hcho()
 
     def _init_pm2_5(self):
         fm.register(9, fm.fpioa.UART1_TX, force=True)
@@ -63,6 +65,18 @@ class App:
 
         self.pms7003_up_interval = 20 # s
         self._pms7003_last_up_t = 0
+    
+    def _init_hcho(self):
+        fm.register(34, fm.fpioa.UART3_TX, force=True)
+        fm.register(33, fm.fpioa.UART3_RX, force=True)
+        uart = UART(UART.UART3, 9600, 8, 0, 0, timeout=1000, read_buf_len=1024)
+
+        self.ws_h3 = WS_H3(uart, self.on_hcho_data)
+        # ws_h3.set_power_mode(low_power = False)
+        self.ws_h3.set_data_mode(active = False)
+
+        self.ws_h3_up_interval = 20 # s
+        self._ws_h3_last_up_t = 0
 
     def show(self, text=None, wifi_ip=None, server_conn=None, append=False, print_text=True):
         if not text is None:
@@ -107,6 +121,12 @@ class App:
         self.explorer.data["pm1_0"] = data["pm1.0"]
         self.explorer.data["pm10"] = data["pm10"]
         self.explorer.notify_report(["pm2_5", "pm1_0", "pm10"])
+
+    def on_hcho_data(self, data):
+        print("--read hcho data:", data)
+        self.explorer.data["hcho_ug"] = data["value_ug_m3"]
+        self.explorer.data["hcho_ppb"] = data["value_ppb"]
+        self.explorer.notify_report(["hcho_ug", "hcho_ppb"])
 
     def set_hint_led(self, on):
         self.led_b.value(0 if on else 1)
@@ -193,6 +213,10 @@ class App:
                 if time.ticks_ms() - self._pms7003_last_up_t > self.pms7003_up_interval * 1000: # TODO: overflow deal
                     self.pms7003.run()
                     self._pms7003_last_up_t = time.ticks_ms()
+                if time.ticks_ms() - self._ws_h3_last_up_t > self.ws_h3_up_interval * 1000: # TODO: overflow deal
+                    self.ws_h3.run()
+                    self._ws_h3_last_up_t = time.ticks_ms()
+
 
     def get_pannel(self):
         img = image.Image(size=(320, 240))

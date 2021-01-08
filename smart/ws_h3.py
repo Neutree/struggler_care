@@ -4,7 +4,7 @@ from machine import UART
 import ustruct
 import time
 
-class PMS7003:
+class WS_H3:
     def __init__(self, uart_obj, on_data):
         self.uart = uart_obj
         self.on_data = on_data
@@ -108,8 +108,8 @@ if __name__ == "__main__":
 
     lcd.init()
 
-    fm.register(22, fm.fpioa.UART1_TX, force=True)
-    fm.register(23, fm.fpioa.UART1_RX, force=True)
+    fm.register(33, fm.fpioa.UART1_TX, force=True)
+    fm.register(34, fm.fpioa.UART1_RX, force=True)
     uart = UART(UART.UART1, 9600, 8, 0, 0, timeout=1000, read_buf_len=1024)
 
     def on_data(data):
@@ -118,11 +118,11 @@ if __name__ == "__main__":
         img.draw_string(6, 110, "CH2O:{}ppb,{}ug/m3".format(data["value_ppb"], data["value_ug_m3"]), scale=2, color=(255, 255, 255))
         lcd.display(img)
 
-    pms7003 = PMS7003(uart, on_data)
-    # pms7003.set_power_mode(low_power = False)
-    pms7003.set_data_mode(active = False)
+    ws_h3 = WS_H3(uart, on_data)
+    # ws_h3.set_power_mode(low_power = False)
+    ws_h3.set_data_mode(active = False)
     cmd = b'\xFF\x01\x78\x40\x00\x00\x00\x00\x47'
-    pms7003.parity(cmd[1:-1])
+    ws_h3.parity(cmd[1:-1])
     while 1:
-        pms7003.run()
+        ws_h3.run()
 
