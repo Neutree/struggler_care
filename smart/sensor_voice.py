@@ -6,6 +6,7 @@ from explorer import Explorer_AT
 from Maix import GPIO
 from machine import UART
 from fpioa_manager import fm
+from pms7003 import PMS7003
 
 
 class App:
@@ -14,7 +15,9 @@ class App:
         self.device_name = device_name
         self.device_key = device_key
         self.product_secret = product_secret
+        self.init0()
 
+    def init0(self):
         fm.register(8, fm.fpioa.GPIOHS1, force=True)
         fm.register(12, fm.fpioa.GPIOHS2, force=True)
         fm.register(16, fm.fpioa.GPIOHS3, force=True)
@@ -32,20 +35,34 @@ class App:
         self.wifi_rst_btn.value(1)
         lcd.init()
 
-        self.explorer = Explorer_AT(self.uart, self.on_control)
+        self.explorer = Explorer_AT(self.uart, self.on_msg)
         self.smartconfiging = False
         self.wifi_ip = ""
         self.server_conn = False
         self.show_text = ""
         self.button_down_t = -1
         self.explorer.data = {
-            "pm2_5": 1000,
-            "pm1_0": 1000,
-            "pm10": 1000,
+            "pm2_5": 0,
+            "pm1_0": 0,
+            "pm10": 0,
             "light": 0,
-            "hcho_ug": 1000,
-            "hcho_ppb": 1000
+            "hcho_ug": 0,
+            "hcho_ppb": 0
         }
+
+        self._init_pm2_5()
+
+    def _init_pm2_5(self):
+        fm.register(9, fm.fpioa.UART1_TX, force=True)
+        fm.register(10, fm.fpioa.UART1_RX, force=True)
+        uart = UART(UART.UART1, 9600, 8, 0, 0, timeout=1000, read_buf_len=1024)
+
+        self.pms7003 = PMS7003(uart, self.on_pm2_5_data)
+        self.pms7003.set_power_mode(low_power = False)
+        self.pms7003.set_data_mode(active = False)
+
+        self.pms7003_up_interval = 20 # s
+        self._pms7003_last_up_t = 0
 
     def show(self, text=None, wifi_ip=None, server_conn=None, append=False, print_text=True):
         if not text is None:
@@ -84,16 +101,30 @@ class App:
         self.explorer.data["hcho_ug"] = ug
         self.explorer.data["hcho_ppb"] = ppb
 
+    def on_pm2_5_data(self, data):
+        print("--read pm2.5 data:", data)
+        self.explorer.data["pm2_5"] = data["pm2.5"]
+        self.explorer.data["pm1_0"] = data["pm1.0"]
+        self.explorer.data["pm10"] = data["pm10"]
+        self.explorer.notify_report(["pm2_5", "pm1_0", "pm10"])
+
     def set_hint_led(self, on):
         self.led_b.value(0 if on else 1)
 
-    def on_control(self, msg):
-        for key in msg:
-            info = "control {}:{}".format(key, msg[key])
-            self.show(text=info, append=True, print_text=True)
-            if key == "light":
-                self.set_data_light(True if msg[key]==1 else False)
-        self.explorer.notify_report(msg.keys())
+    def on_msg(self, msg):
+        # {"method":"control","clientToken":"clientToken-L-0Okp05b","params":{"light":1}}
+        # {"method":"report_reply","clientToken":"msgpub-token-000000000003","code":0,"status":"success"}
+        if msg["method"] == "control":
+            params = msg["params"]
+            for key in params:
+                info = "control {}:{}".format(key, params[key])
+                self.show(text=info, append=True, print_text=True)
+                if key == "light":
+                    self.set_data_light(True if params[key]==1 else False)
+            self.explorer.notify_report(params.keys())
+        elif msg["method"] == "report_reply":
+            print("--report reply, id:{}, status:{}".format(msg["clientToken"], msg["status"]) )
+        
 
     def try_connect(self):
         ip = self.explorer.get_ip()
@@ -157,6 +188,11 @@ class App:
                             self.smartconfiging = False
         else:
             self.button_down_t = -1
+            # sensors
+            if self.server_conn:
+                if time.ticks_ms() - self._pms7003_last_up_t > self.pms7003_up_interval * 1000: # TODO: overflow deal
+                    self.pms7003.run()
+                    self._pms7003_last_up_t = time.ticks_ms()
 
     def get_pannel(self):
         img = image.Image(size=(320, 240))
@@ -211,6 +247,7 @@ if __name__ == "__main__":
 
     while 1:
         try:
+            app.init0()
             app.init()
             app.run()
         except Exception as e:
@@ -221,5 +258,6 @@ if __name__ == "__main__":
             err_str = err_str.getvalue()
             print(err_str)
             app.show( text=str(err_str))
+            break
             time.sleep_ms(5000)
 

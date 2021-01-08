@@ -5,9 +5,9 @@ import ure
 
 
 class Explorer_AT:
-    def __init__(self, uart, on_control):
+    def __init__(self, uart, on_msg):
         self.uart = uart
-        self.on_control = on_control
+        self.on_msg = on_msg
         self.msg = b""
         self.product_key = None
         self.device_name = None
@@ -138,7 +138,11 @@ class Explorer_AT:
         raise Exception("cmd ack error: {}, ack: {}".format(cmd, ack))
 
     def notify_report(self, keys):
-        self.data_changed_keys = list(keys)
+        if not self.data_changed_keys:
+            self.data_changed_keys = list(keys)
+        else:
+            for item in keys:
+                self.data_changed_keys.append(item)
     
     def report(self, keys):
         data = {}
@@ -173,24 +177,21 @@ class Explorer_AT:
             idx = self.msg.find(b"+TCMQTTRCVPUB:")
             if idx >= 0:
                 self.msg = self.msg[idx:]
-                print("--", self.msg)
+                print("--msg:", self.msg)
                 idx = self.msg.find(b'}"\r\n') + 2
                 if idx >= 0:
-                    pub_msg = self.msg[:idx]
+                    pub_msg = self.msg
                     try:
-                        pub_msg = pub_msg.decode()
-                        mat = ure.match('.*"params":(.*)}".*', pub_msg)
+                        mat = ure.match('.*"{(.*)}".*', pub_msg.decode())
                         if mat:
-                            pub_msg = mat.group(1)
-                        else:
-                            raise Exception("find json data fail")
-                        pub_msg = json.loads(pub_msg)
+                            pub_msg = '{'+mat.group(1)+'}'
+                            pub_msg = json.loads(pub_msg)
                     except Exception as e:
                         print(e)
                         print("--[error] pub msg decode error:{}".format(pub_msg))
                         pub_msg = None
                     if pub_msg:
-                        self.on_control(pub_msg)
+                        self.on_msg(pub_msg)
                     self.msg = self.msg[idx+2:] # remove "+TCMQTTRCVPUB:...\r\n"
 
 
@@ -237,11 +238,11 @@ if __name__ == "__main__":
     read = uart.read()
     print("reset ok")
 
-    def on_control(msg):
+    def on_msg(msg):
         for key in msg:
             print("control {}:{}".format(key, msg[key]))
 
-    explorer = Explorer_AT(uart, on_control)
+    explorer = Explorer_AT(uart, on_msg)
     print("--config")
     explorer.config("1WAN4M5NPX", "device_01", "PHsWVCZkf9IaPnkhZkG4Rg==")
     print("--start smartconfig")
