@@ -19,12 +19,15 @@ class Explorer_AT:
         cmd = 'AT+TCDEVINFOSET=1,"{}","{}","{}"'.format(
             product_key, device_name, device_key
         )
+        cmd2 = 'AT+CWAUTOCONN'
         self.product_key = product_key
         self.device_name = device_name
         self.device_key = device_key
         ack = self._cmd(cmd, ["+TCDEVINFOSET:OK"], timeout=3)
+        ack = self._cmd(cmd2, ["OK"], timeout=1)
+        
 
-    def smartconfig(self, timeout=60):
+    def smartconfig(self, timeout=120):
         cmd_stop = "AT+TCSTOPSMART"
         cmd_start = "AT+TCSTARTSMART"
         # print("--now stop smartconfig")
@@ -68,6 +71,18 @@ class Explorer_AT:
                 raise Exception("reset timeout")
         time.sleep_ms(200)
         read = uart.read()
+    
+    def get_ip(self):
+        cmd = "AT+CIFSR"
+        ack = self._cmd(cmd, ["OK"], ["ERROR"], timeout=2)
+        # 'AT+CIFSR\r\n+CIFSR:STAIP,"0.0.0.0"\r\n+CIFSR:STAMAC,"18:fe:34:de:a6:00"\r\n\r\nOK\r\n'
+        mat = ure.match('.*CIFSR:STAIP\,"(.*)".*CIFSR.*', ack)
+        if mat:
+            ip = mat.group(1)
+            return ip
+        return "null"
+        
+
 
     def _cmd(self, cmd, expected=[], fail_ack=["ERROR"], timeout=6):
         cmd += "\r\n"
