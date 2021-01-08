@@ -233,6 +233,8 @@ class App:
         img.draw_string(0,180, "PM1.0: {} ug/m3".format(self.explorer.data['pm1_0']), color=(255, 255, 255))
         img.draw_string(100,180, "PM2.5: {} ug/m3".format(self.explorer.data['pm2_5']), color=(255, 255, 255))
         img.draw_string(200,180, "PM10: {} ug/m3".format(self.explorer.data['pm10']), color=(255, 255, 255))
+        img.draw_string(100,200, "HCHO: {} ug/m3".format(self.explorer.data['hcho_ug']), color=(255, 255, 255))
+        img.draw_string(200,200, "HCHO: {} ppb".format(self.explorer.data['hcho_ppb']), color=(255, 255, 255))
         return img
 
     def show_update(self):
