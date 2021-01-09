@@ -20,7 +20,7 @@ class Face_Recog:
         sensor.reset()
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(sensor.QVGA)
-        sensor.set_hmirror(1)
+        # sensor.set_hmirror(1)
         sensor.set_vflip(1)
         self.show_img_timeout = 5
         self._show_img_t = -5
@@ -37,7 +37,7 @@ class Face_Recog:
     def get_users(self):
         return self.names, self.features
 
-    def run(self, on_detect, on_img, on_clear, on_people=None):
+    def run(self, on_detect, on_img, on_clear, on_people=None, always_show_img=False):
         img = sensor.snapshot()
         try:
             code = kpu.run_yolo2(self._m_fd, img)
@@ -99,10 +99,13 @@ class Face_Recog:
                     on_people(feature, img)
                 self._show_img_t = time.ticks_ms() / 1000.0
         else:
-            if time.ticks_ms() - self._show_img_t * 1000 < self.show_img_timeout * 1000:
+            if always_show_img:
                 on_img(img)
             else:
-                on_clear()
+                if time.ticks_ms() - self._show_img_t * 1000 < self.show_img_timeout * 1000:
+                    on_img(img)
+                else:
+                    on_clear()
             
 
 if __name__ == "__main__":

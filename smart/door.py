@@ -10,6 +10,7 @@ from pms7003 import PMS7003
 from ws_h3 import WS_H3
 from face import Face_Recog
 import gc
+import ubinascii
 
 
 class App:
@@ -61,15 +62,23 @@ class App:
             pass
         self.face_recog = Face_Recog()
         users, features = self.load_users()
+        print("load users:", users, len(features), features)
+        for f in features:
+            print(f)
         self.face_recog.set_users(users, features)
+        self.add_user_timeout = 60
 
     def add_user(self):
-        t = time.ticks_ms()
-        ok = False
+        self.__t = time.ticks_ms()
+        self.__ok = False
         def _on_detect(user, feature, score, img):
+            img.draw_rectangle((0,0, 320, 32), color=(255, 0, 0), fill=True)
+            img.draw_string(10, 3, "push button to record in {}s".format(self.add_user_timeout - (time.ticks_ms() - self.__t)//1000), color=(255, 255, 255), scale=2)
             self.show(img=img)
 
         def _on_img(img):
+            img.draw_rectangle((0,0, 320, 32), color=(255, 0, 0), fill=True)
+            img.draw_string(10, 3, "push button to record in {}s".format(self.add_user_timeout - (time.ticks_ms() - self.__t)//1000), color=(255, 255, 255), scale=2)
             self.show(img=img)
 
         def _on_clear():
@@ -92,15 +101,15 @@ class App:
                     self.save_users(users, features)
                     print("save features ok")
                     time.sleep_ms(300)
-                    global ok
-                    ok = True
+                    print("add user ok:")
+                    self.__ok = True
 
         while 1:
-            if time.ticks_ms() - t > 20000:
-                print("timeout")
-            self.face_recog.run(_on_detect, _on_img, _on_clear, on_people=_on_people)
-            if ok:
-                #FIXME:
+            if time.ticks_ms() - self.__t > self.add_user_timeout * 1000:
+                self.show(text="add user timeout")
+                break
+            self.face_recog.run(_on_detect, _on_img, _on_clear, on_people=_on_people, always_show_img=True)
+            if self.__ok:
                 break
 
     def load_users(self):
@@ -116,18 +125,33 @@ class App:
                 return [], []
         with open(conf_name) as f:
             conf = f.read()
+            users = []
             try:
                 conf = json.loads(conf)
+                features = []
+                for i, fea in enumerate(conf['features']):
+                    fea = ubinascii.a2b_base64(fea)
+                    if fea: #TODO: length
+                        users.append(conf['users'][i])
+                        features.append(fea)
+                        print("decoded feature:", fea)
+                    else:
+                        print("user {}'s feature not valid".format(conf['users'][i]))
             except Exception:
                 print("parse config file error")
                 return [], []
-            return conf['users'], conf['features']
+            return users, features
 
     def save_users(self, users, features):
         conf_name = "door_users.json"
+        feas_encode = []
+        for fea in features:
+            print("raw feature:", fea)
+            fea = ubinascii.b2a_base64(fea)
+            feas_encode.append(fea)
         info = {
             "users": users,
-            "features": features
+            "features": feas_encode
         }
         with open(conf_name, "w") as f:
             info = json.dumps(info)
@@ -179,7 +203,8 @@ class App:
                 if key == "door":
                     self.set_data_door(True if params[key]==1 else False)
                 elif key == "add_user":
-                    self.add_user()
+                    if params[key] == 1:
+                        self.add_user()
                     self.explorer.data['add_user'] = 0
             self.explorer.notify_report(params.keys())
         elif msg["method"] == "report_reply":
@@ -255,7 +280,6 @@ class App:
             self.face_recog.run(self.on_detect, self.on_img, self.on_clear)
 
     def on_detect(self, user, feature, score, img):
-        print(user, feature, score)
         self.show(img=img)
 
     def on_img(self, img):
