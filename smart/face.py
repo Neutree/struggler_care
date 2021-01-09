@@ -32,7 +32,7 @@ class Face_Recog:
 
     def set_users(self, names, features):
         self.names = names
-        self.features
+        self.features = features
     
     def get_users(self):
         return self.names, self.features

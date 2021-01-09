@@ -48,25 +48,29 @@ class App:
             "door": 0,
             "last_user": "",
             "feature": "",
-            "add_user": 0
+            "add_user": 0,
+            "clear_users": 0
         }
 
         self._init_door()
 
 
     def _init_door(self):
+        self.add_user_timeout = 60
+        self.users_conf_name = "door_users.json"
+        self.door_open_timeout = 5
+        self.door_open_t = -1
         try:
+            self.face_recog.__del__()
             del self.face_recog
             gc.collect()
         except Exception:
             pass
         self.face_recog = Face_Recog()
         users, features = self.load_users()
-        print("load users:", users, len(features), features)
-        for f in features:
-            print(f)
+        print("load users:", users, len(features))
         self.face_recog.set_users(users, features)
-        self.add_user_timeout = 60
+
 
     def add_user(self):
         self.__t = time.ticks_ms()
@@ -112,18 +116,26 @@ class App:
             if self.__ok:
                 break
 
+    def clear_users(self):
+        with open(self.users_conf_name, "w") as f:
+            info = {
+                "users": [],
+                "features": []
+            }
+            f.write(json.dumps(info))
+        self.face_recog.set_users([], [])        
+
     def load_users(self):
         files = os.listdir()
-        conf_name = "door_users.json"
-        if not conf_name in files:
-            with open(conf_name, "w") as f:
+        if not self.users_conf_name in files:
+            with open(self.users_conf_name, "w") as f:
                 info = {
                     "users": [],
                     "features": []
                 }
-                f.write(info)
+                f.write(json.dumps(info))
                 return [], []
-        with open(conf_name) as f:
+        with open(self.users_conf_name) as f:
             conf = f.read()
             users = []
             try:
@@ -143,7 +155,6 @@ class App:
             return users, features
 
     def save_users(self, users, features):
-        conf_name = "door_users.json"
         feas_encode = []
         for fea in features:
             print("raw feature:", fea)
@@ -153,7 +164,7 @@ class App:
             "users": users,
             "features": feas_encode
         }
-        with open(conf_name, "w") as f:
+        with open(self.users_conf_name, "w") as f:
             info = json.dumps(info)
             f.write(info)
 
@@ -206,6 +217,10 @@ class App:
                     if params[key] == 1:
                         self.add_user()
                     self.explorer.data['add_user'] = 0
+                elif key == "clear_users":
+                    if params[key] == 1:
+                        self.clear_users()
+                    self.explorer.data['clear_users'] = 0
             self.explorer.notify_report(params.keys())
         elif msg["method"] == "report_reply":
             print("--report reply, id:{}, status:{}".format(msg["clientToken"], msg["status"]) )
@@ -243,7 +258,7 @@ class App:
         self.explorer.notify_report(keys)
 
     def main_loop(self):
-        if not self.wifi_ip:
+        if not self.wifi_ip or not self.server_conn:
             time.sleep_ms(2000)
             self.try_connect()
 
@@ -264,8 +279,7 @@ class App:
                                 self.explorer.smartconfig()
                                 wifi_ip = self.explorer.get_ip()
                                 print("-- smartconfig success, ip:", wifi_ip)
-                                self.show(wifi_ip=wifi_ip, server_conn=True)
-                                self.on_connect()
+                                self.show(wifi_ip=wifi_ip)
                             except Exception:
                                 print("--[ERROR] smartconfig fail")
                                 self.show(wifi_ip="null", server_conn=False)
@@ -275,11 +289,15 @@ class App:
             self.button_down_t = -1
             # sensors
             if self.server_conn:
-                pass
-            # door face recognzaition
-            self.face_recog.run(self.on_detect, self.on_img, self.on_clear)
+                # door face recognzaition
+                self.face_recog.run(self.on_detect, self.on_img, self.on_clear)
 
     def on_detect(self, user, feature, score, img):
+        if self.door_open_t < 0 or time.ticks_ms() - self.door_open_t * 1000 > self.door_open_timeout * 1000:
+            self.set_data_door(True)
+            self.explorer.notify_report(["door"])
+            self.door_open_t = time.ticks_ms() / 1000.0
+            gc.collect()
         self.show(img=img)
 
     def on_img(self, img):
