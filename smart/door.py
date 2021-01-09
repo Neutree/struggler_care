@@ -278,10 +278,13 @@ class App:
                             print(text)
                             self.show(text=text)
                             try:
+                                self.show(wifi_ip="", server_conn=False)
                                 self.explorer.smartconfig()
                                 wifi_ip = self.explorer.get_ip()
                                 print("-- smartconfig success, ip:", wifi_ip)
                                 self.show(wifi_ip=wifi_ip)
+                                if not wifi_ip:
+                                    self.init() # no ip get, AT firmware bug, just reset WiFi
                             except Exception:
                                 print("--[ERROR] smartconfig fail")
                                 self.show(wifi_ip="null", server_conn=False)

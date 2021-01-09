@@ -41,6 +41,12 @@ class Explorer_AT:
     def smartconfig(self, timeout=120):
         cmd_stop = "AT+TCSTOPSMART"
         cmd_start = "AT+TCSTARTSMART"
+        print("--try disconnet")
+        try:
+            cmd = "AT+TCMQTTDISCONN"
+            ack = self._cmd(cmd, ["OK"], ["ERROR"], timeout=timeout)
+        except Exception:
+            pass
         # print("--now stop smartconfig")
         # ack = self._cmd(cmd_stop, "OK", timeout=3) # this will cause reboot
         print("--now start smartconfig")
