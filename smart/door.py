@@ -1,4 +1,4 @@
-import time
+import time, os
 import json
 import ure
 import image, lcd
@@ -8,6 +8,8 @@ from machine import UART
 from fpioa_manager import fm
 from pms7003 import PMS7003
 from ws_h3 import WS_H3
+from face import Face_Recog
+import gc
 
 
 class App:
@@ -16,7 +18,6 @@ class App:
         self.device_name = device_name
         self.device_key = device_key
         self.product_secret = product_secret
-        self.init0()
 
     def init0(self):
         fm.register(8, fm.fpioa.GPIOHS1, force=True)
@@ -43,42 +44,99 @@ class App:
         self.show_text = ""
         self.button_down_t = -1
         self.explorer.data = {
-            "pm2_5": 0,
-            "pm1_0": 0,
-            "pm10": 0,
-            "light": 0,
-            "hcho_ug": 0,
-            "hcho_ppb": 0
+            "door": 0,
+            "last_user": "",
+            "feature": "",
+            "add_user": 0
         }
 
-        self._init_pm2_5()
-        self._init_hcho()
+        self._init_door()
 
-    def _init_pm2_5(self):
-        fm.register(9, fm.fpioa.UART1_TX, force=True)
-        fm.register(10, fm.fpioa.UART1_RX, force=True)
-        uart = UART(UART.UART1, 9600, 8, 0, 0, timeout=1000, read_buf_len=1024)
 
-        self.pms7003 = PMS7003(uart, self.on_pm2_5_data)
-        self.pms7003.set_power_mode(low_power = False)
-        self.pms7003.set_data_mode(active = False)
+    def _init_door(self):
+        try:
+            del self.face_recog
+            gc.collect()
+        except Exception:
+            pass
+        self.face_recog = Face_Recog()
+        users, features = self.load_users()
+        self.face_recog.set_users(users, features)
 
-        self.pms7003_up_interval = 20 # s
-        self._pms7003_last_up_t = -20
-    
-    def _init_hcho(self):
-        fm.register(34, fm.fpioa.UART3_TX, force=True)
-        fm.register(33, fm.fpioa.UART3_RX, force=True)
-        uart = UART(UART.UART3, 9600, 8, 0, 0, timeout=1000, read_buf_len=1024)
+    def add_user(self):
+        t = time.ticks_ms()
+        ok = False
+        def _on_detect(user, feature, score, img):
+            self.show(img=img)
 
-        self.ws_h3 = WS_H3(uart, self.on_hcho_data)
-        # ws_h3.set_power_mode(low_power = False)
-        self.ws_h3.set_data_mode(active = False)
+        def _on_img(img):
+            self.show(img=img)
 
-        self.ws_h3_up_interval = 20 # s
-        self._ws_h3_last_up_t = -20
+        def _on_clear():
+            self.show()
 
-    def show(self, text=None, wifi_ip=None, server_conn=None, append=False, print_text=True):
+        def _on_people(feature, img):
+            if self.button.value() == 0:
+                time.sleep_ms(20)
+                if self.button.value() == 0:
+                    img.draw_rectangle((0,0, 320, 32), color=(255, 0, 0), fill=True)
+                    img.draw_string(100, 3, "record ok", color=(255, 255, 255), scale=2)
+                    self.show(img=img)
+                    users, features = self.face_recog.get_users()
+                    user = "No.{}".format(len(users) + 1)
+                    print("add user:{}, feature:{}".format(user, feature))
+                    users.append(user)
+                    features.append(feature)
+                    self.face_recog.set_users(users, features)
+                    print("save features")
+                    self.save_users(users, features)
+                    print("save features ok")
+                    time.sleep_ms(300)
+                    global ok
+                    ok = True
+
+        while 1:
+            if time.ticks_ms() - t > 20000:
+                print("timeout")
+            self.face_recog.run(_on_detect, _on_img, _on_clear, on_people=_on_people)
+            if ok:
+                #FIXME:
+                break
+
+    def load_users(self):
+        files = os.listdir()
+        conf_name = "door_users.json"
+        if not conf_name in files:
+            with open(conf_name, "w") as f:
+                info = {
+                    "users": [],
+                    "features": []
+                }
+                f.write(info)
+                return [], []
+        with open(conf_name) as f:
+            conf = f.read()
+            try:
+                conf = json.loads(conf)
+            except Exception:
+                print("parse config file error")
+                return [], []
+            return conf['users'], conf['features']
+
+    def save_users(self, users, features):
+        conf_name = "door_users.json"
+        info = {
+            "users": users,
+            "features": features
+        }
+        with open(conf_name, "w") as f:
+            info = json.dumps(info)
+            f.write(info)
+
+    def show(self, text=None, wifi_ip=None, server_conn=None, append=False, print_text=True, img=None):
+        if img:
+            lcd.display(img)
+            return
         if not text is None:
             if append:
                 self.show_text += text + "\n"
@@ -97,37 +155,14 @@ class App:
             self.server_conn = server_conn
         self.show_update()
 
-    def is_light_on(self):
+    def is_door_open(self):
         if self.led_g.value() == 0:
             return True
         return False
 
-    def set_data_light(self, on):
+    def set_data_door(self, on):
         self.led_g.value(0 if on else 1)
-        self.explorer.data["light"] = 1 if on else 0
-    
-    def set_data_pm2_5(self, pm2_5, pm1_0, pm10):
-        self.explorer.data["pm2_5"] = pm2_5
-        self.explorer.data["pm1_0"] = pm1_0
-        self.explorer.data["pm1_0"] = pm10
-    
-    def set_data_hcho(self, ug, ppb):
-        self.explorer.data["hcho_ug"] = ug
-        self.explorer.data["hcho_ppb"] = ppb
-
-    def on_pm2_5_data(self, data):
-        print("--read pm2.5 data:", data)
-        self.explorer.data["pm2_5"] = data["pm2.5"]
-        self.explorer.data["pm1_0"] = data["pm1.0"]
-        self.explorer.data["pm10"] = data["pm10"]
-        self.explorer.notify_report(["pm2_5", "pm1_0", "pm10"])
-        self.show()
-
-    def on_hcho_data(self, data):
-        print("--read hcho data:", data)
-        self.explorer.data["hcho_ug"] = data["value_ug_m3"]
-        self.explorer.data["hcho_ppb"] = data["value_ppb"]
-        self.explorer.notify_report(["hcho_ug", "hcho_ppb"])
+        self.explorer.data["door"] = 1 if on else 0
         self.show()
 
     def set_hint_led(self, on):
@@ -141,12 +176,15 @@ class App:
             for key in params:
                 info = "control {}:{}".format(key, params[key])
                 self.show(text=info, append=True, print_text=True)
-                if key == "light":
-                    self.set_data_light(True if params[key]==1 else False)
+                if key == "door":
+                    self.set_data_door(True if params[key]==1 else False)
+                elif key == "add_user":
+                    self.add_user()
+                    self.explorer.data['add_user'] = 0
             self.explorer.notify_report(params.keys())
         elif msg["method"] == "report_reply":
             print("--report reply, id:{}, status:{}".format(msg["clientToken"], msg["status"]) )
-        
+
 
     def try_connect(self):
         ip = self.explorer.get_ip()
@@ -212,13 +250,19 @@ class App:
             self.button_down_t = -1
             # sensors
             if self.server_conn:
-                if time.ticks_ms() - self._pms7003_last_up_t * 1000 > self.pms7003_up_interval * 1000: # TODO: overflow deal
-                    self.pms7003.run()
-                    self._pms7003_last_up_t = time.ticks_ms() / 1000.0
-                if time.ticks_ms() - self._ws_h3_last_up_t * 1000 > self.ws_h3_up_interval * 1000: # TODO: overflow deal
-                    self.ws_h3.run()
-                    self._ws_h3_last_up_t = time.ticks_ms()  / 1000.0
+                pass
+            # door face recognzaition
+            self.face_recog.run(self.on_detect, self.on_img, self.on_clear)
 
+    def on_detect(self, user, feature, score, img):
+        print(user, feature, score)
+        self.show(img=img)
+
+    def on_img(self, img):
+        self.show(img=img)
+
+    def on_clear(self):
+        self.show()
 
     def get_pannel(self):
         img = image.Image(size=(320, 240))
@@ -230,11 +274,7 @@ class App:
         else:
             color = (255, 0, 0)
         img.draw_circle(300, 7, 6, color=color, fill=True)
-        img.draw_string(0,180, "PM1.0: {} ug/m3".format(self.explorer.data['pm1_0']), color=(255, 255, 255))
-        img.draw_string(100,180, "PM2.5: {} ug/m3".format(self.explorer.data['pm2_5']), color=(255, 255, 255))
-        img.draw_string(200,180, "PM10: {} ug/m3".format(self.explorer.data['pm10']), color=(255, 255, 255))
-        img.draw_string(100,200, "HCHO: {} ug/m3".format(self.explorer.data['hcho_ug']), color=(255, 255, 255))
-        img.draw_string(200,200, "HCHO: {} ppb".format(self.explorer.data['hcho_ppb']), color=(255, 255, 255))
+        img.draw_string(6,180, "door: {}".format("open" if self.explorer.data['door']==1 else "closed"), color=(255, 255, 255), scale=2)
         return img
 
     def show_update(self):
@@ -249,6 +289,7 @@ class App:
 
 
     def init(self):
+        self.init0()
         text = "reset..."
         self.show(text=text)
         self.explorer.wifi_reset(self.wifi_rst_btn)
@@ -271,14 +312,11 @@ class App:
 
 
 if __name__ == "__main__":
-    # app = App("1WAN4M5NPX", None, None, "5aSx6oJozEh2rT9CtAIlzVeI")
-    # app = App("1WAN4M5NPX", "device_01", "JvTXVmtGJQXVBboVCFRTDQ==")
-    app = App("1WAN4M5NPX", "device_02", "vQsu7B6unW+p4fxSZWUBRg==")
-    # app = App("1WAN4M5NPX", "device_03", "73mtaGsWW1QHttzOYGRggA==")
+    # app = App("K55ED9N9JG", None, None, "AZbeh5URtxhZNE0moKYnnZs8")
+    app = App("K55ED9N9JG", "door_01", "rmySB75J14GZLCVbkRuRkQ==")
 
     while 1:
         try:
-            app.init0()
             app.init()
             app.run()
         except Exception as e:
