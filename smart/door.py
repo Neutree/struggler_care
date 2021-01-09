@@ -58,8 +58,9 @@ class App:
     def _init_door(self):
         self.add_user_timeout = 60
         self.users_conf_name = "door_users.json"
-        self.door_open_timeout = 5
-        self.door_open_t = -1
+        self.door_open_timeout = 5  # s
+        self.door_open_interval = 8 # s
+        self.door_open_t = -self.door_open_timeout
         try:
             self.face_recog.__del__()
             del self.face_recog
@@ -213,6 +214,7 @@ class App:
                 self.show(text=info, append=True, print_text=True)
                 if key == "door":
                     self.set_data_door(True if params[key]==1 else False)
+                    self.door_open_t = time.ticks_ms() / 1000.0
                 elif key == "add_user":
                     if params[key] == 1:
                         self.add_user()
@@ -291,13 +293,17 @@ class App:
             if self.server_conn:
                 # door face recognzaition
                 self.face_recog.run(self.on_detect, self.on_img, self.on_clear)
+        # door auto close
+        if time.ticks_ms() - self.door_open_t * 1000 > self.door_open_timeout * 1000:
+            if self.is_door_open():
+                self.set_data_door(False)
+                self.explorer.notify_report(["door"])
 
     def on_detect(self, user, feature, score, img):
-        if self.door_open_t < 0 or time.ticks_ms() - self.door_open_t * 1000 > self.door_open_timeout * 1000:
+        if time.ticks_ms() - self.door_open_t * 1000 > self.door_open_interval * 1000:
             self.set_data_door(True)
             self.explorer.notify_report(["door"])
-            self.door_open_t = time.ticks_ms() / 1000.0
-            gc.collect()
+            self.door_open_t = time.ticks_ms() / 1000.0    # closed but remain have people
         self.show(img=img)
 
     def on_img(self, img):

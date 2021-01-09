@@ -45,7 +45,6 @@ class Face_Recog:
             return
         if code:
             for i in code:
-                a = img.draw_rectangle(i.rect())
                 face_cut = img.cut(i.x(),i.y(),i.w(),i.h())
                 face_cut_128 = face_cut.resize(128,128)
                 a = face_cut_128.pix_to_ai()
@@ -90,9 +89,11 @@ class Face_Recog:
                         max_score = scores[k]
                         index = k
                 if max_score > 85:
+                    a = img.draw_rectangle(i.rect(), color=(0, 255, 0))
                     a = img.draw_string(i.x(),i.y(), ("%s :%2.1f" % (self.names[index], max_score)), color=(0,255,0),scale=2)
                     on_detect(self.names[index], feature, max_score, img)
                 else:
+                    a = img.draw_rectangle(i.rect(), color=(255, 0, 0))
                     # a = img.draw_string(i.x(),i.y(), ("X :%2.1f" % (max_score)), color=(255,0,0),scale=2)
                     on_img(img)
                 if on_people:
