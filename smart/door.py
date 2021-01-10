@@ -362,9 +362,33 @@ class App:
             self.main_loop()
 
 
-if __name__ == "__main__":
-    # app = App("K55ED9N9JG", None, None, "AZbeh5URtxhZNE0moKYnnZs8")
-    app = App("K55ED9N9JG", "door_01", "rmySB75J14GZLCVbkRuRkQ==")
+if __name__ == "__main__":    
+    config_name = "explorer.conf"
+    try:
+        with open(config_name) as f:
+            config = json.load(f)
+        if not config["product_key"] or (
+            ((not config["device_name"]) or (not config["device_key"])) and (not config["product_secret"])
+            ):
+            raise Exception("param error")
+    except Exception:
+        config = '''{
+            "product_key": "",
+            "device_name": "",
+            "device_key": "",
+            "product_secret": "null"
+        }'''
+        with open(config_name, "w") as f:
+            f.write(config)
+        lcd.init(color=lcd.RED)
+        img = image.Image(size=(320, 240))
+        img.draw_rectangle((0,0, 320, 240), color=(255, 0, 0), fill=True)
+        img.draw_string(0,80, "load explorer config fail\nconfig explorer.conf file first", color=(255, 255, 255), scale=2)
+        lcd.display(img)
+        import sys
+        print("config:", config)
+        sys.exit("config error, please config first at explorer.conf")
+    app = App(config["product_key"], config["device_name"], config["device_key"], config["product_secret"])
 
     while 1:
         try:
