@@ -19,6 +19,11 @@
 #include "esp_qcloud_iothub.h"
 #include "esp_qcloud_utils.h"
 
+#ifdef CONFIG_QCLOUD_MASS_MANUFACTURE
+#include "nvs.h"
+#include "nvs_flash.h"
+#endif
+
 /* Handle to maintain internal information (will move to an internal file) */
 typedef struct {
     char *product_id;
@@ -38,15 +43,17 @@ static esp_qcloud_profile_t *g_device_profile = NULL;
 static esp_qcloud_set_param_t g_esp_qcloud_set_param = NULL;
 static esp_qcloud_get_param_t g_esp_qcloud_get_param = NULL;
 
-static SLIST_HEAD(param_list_, esp_qcloud_param) g_param_list;
+static SLIST_HEAD(param_list_, esp_qcloud_param) g_property_list;
+static SLIST_HEAD(action_list_, esp_qcloud_action) g_action_list;
+
+#ifdef CONFIG_AUTH_MODE_CERT
+extern const uint8_t dev_cert_crt_start[] asm("_binary_dev_cert_crt_start");
+extern const uint8_t dev_cert_crt_end[] asm("_binary_dev_cert_crt_end");
+extern const uint8_t dev_private_key_start[] asm("_binary_dev_private_key_start");
+extern const uint8_t dev_private_key_end[] asm("_binary_dev_private_key_end");
+#endif
 
 static const char *TAG = "esp_qcloud_device";
-
-typedef struct esp_qcloud_param {
-    const char *id;
-    esp_qcloud_param_val_t value;
-    SLIST_ENTRY(esp_qcloud_param) next;    //!< next command in the list
-} esp_qcloud_param_t;
 
 esp_err_t esp_qcloud_device_add_fw_version(const char *version)
 {
@@ -78,10 +85,10 @@ esp_err_t esp_qcloud_device_cert(const char *cert_crt, const char *private_key)
 
 esp_err_t esp_qcloud_create_device()
 {
-    g_device_profile = ESP_QCLOUD_CALLOC(1, sizeof(esp_qcloud_param_t));
-    g_device_profile->auth_mode = QCLOUD_AUTH_MODE_KEY;
+    g_device_profile = ESP_QCLOUD_CALLOC(1, sizeof(esp_qcloud_profile_t));
 
 #ifdef CONFIG_QCLOUD_MASS_MANUFACTURE
+    g_device_profile->auth_mode = QCLOUD_AUTH_MODE_KEY;
     /**
      * @brief Read device configuration information through flash
      *        1. Configure device information via single_mfg_config.csv
@@ -89,6 +96,7 @@ esp_err_t esp_qcloud_create_device()
      *          python $IDF_PATH/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate single_mfg_config.csv single_mfg_config.bin 0x4000
      *        3. Burn single_mfg_config.bin to flash
      *          python $IDF_PATH/components/esptool_py/esptool/esptool.py write_flash 0x15000 single_mfg_config.bin
+     * @note Currently does not support the use of certificates for mass manufacture
      */
     esp_err_t err = ESP_FAIL;
     nvs_handle handle = 0;
@@ -110,14 +118,19 @@ esp_err_t esp_qcloud_create_device()
     g_device_profile->device_secret = ESP_QCLOUD_CALLOC(1, DEVICE_SECRET_SIZE + 1);
     ESP_ERROR_CHECK(nvs_get_str(handle, "device_secret", g_device_profile->device_secret, &required_size));
 #else
+
+    g_device_profile->product_id    = CONFIG_QCLOUD_PRODUCT_ID;
+    g_device_profile->device_name   = CONFIG_QCLOUD_DEVICE_NAME;
+
+#ifdef CONFIG_AUTH_MODE_KEY
+    g_device_profile->auth_mode = QCLOUD_AUTH_MODE_KEY;
     /**
      * @brief Read device configuration information through sdkconfig.h
      *        1. Configure device information via `idf.py menuconfig`, Menu path: (Top) -> Example Configuration
+     *        2. Select key authentication
+     *        3. Enter device secret key
      */
-    g_device_profile->product_id    = CONFIG_QCLOUD_PRODUCT_ID;
-    g_device_profile->device_name   = CONFIG_QCLOUD_DEVICE_NAME;
     g_device_profile->device_secret = CONFIG_QCLOUD_DEVICE_SECRET;
-#endif
 
     if (strlen(g_device_profile->device_secret) != DEVICE_SECRET_SIZE
             || strlen(g_device_profile->product_id) != PRODUCT_ID_SIZE) {
@@ -129,6 +142,34 @@ esp_err_t esp_qcloud_create_device()
         ESP_LOGE(TAG, "device_secret: %s", g_device_profile->device_secret);
         goto ERR_EXIT;
     }
+#endif
+
+#ifdef CONFIG_AUTH_MODE_CERT
+    g_device_profile->auth_mode = QCLOUD_AUTH_MODE_CERT;
+    /**
+     * @brief Read device configuration information through sdkconfig.h
+     *        1. Configure device information via `idf.py menuconfig`, Menu path: (Top) -> Example Configuration
+     *        2. Choose certificate authentication
+     *        3. Replace the certificate file in the config directory
+     */
+
+    g_device_profile->cert_crt = (char*)dev_cert_crt_start;
+    g_device_profile->private_key = (char*)dev_private_key_start;
+
+    if (strlen(g_device_profile->product_id) != PRODUCT_ID_SIZE
+        || strlen(g_device_profile->cert_crt) == DEVICE_CERT_FILE_DEFAULT_SIZE) {
+        ESP_LOGE(TAG, "Please check if the authentication information of the device is configured");
+        ESP_LOGE(TAG, "Obtain authentication configuration information from login qcloud iothut: ");
+        ESP_LOGE(TAG, "https://console.cloud.tencent.com/iotexplorer");
+        ESP_LOGE(TAG, "product_id: %s", g_device_profile->product_id);
+        ESP_LOGE(TAG, "device_name: %s", g_device_profile->device_name);
+        ESP_LOGE(TAG, "cert_crt: \r\n%s", g_device_profile->cert_crt);
+        ESP_LOGE(TAG, "private_key: \r\n%s", g_device_profile->private_key);
+        goto ERR_EXIT;
+    }
+#endif
+
+#endif
 
     return ESP_OK;
 
@@ -173,17 +214,17 @@ const char *esp_qcloud_get_private_key()
     return g_device_profile->private_key;
 }
 
-esp_err_t esp_qcloud_device_add_param(const char *id, esp_qcloud_param_val_type_t type)
+esp_err_t esp_qcloud_device_add_property(const char *id, esp_qcloud_param_val_type_t type)
 {
     esp_qcloud_param_t *item = ESP_QCLOUD_CALLOC(1, sizeof(esp_qcloud_param_t));
 
     item->id = strdup(id);
     item->value.type = type;
 
-    esp_qcloud_param_t *last = SLIST_FIRST(&g_param_list);
+    esp_qcloud_param_t *last = SLIST_FIRST(&g_property_list);
 
     if (last == NULL) {
-        SLIST_INSERT_HEAD(&g_param_list, item, next);
+        SLIST_INSERT_HEAD(&g_property_list, item, next);
     } else {
         SLIST_INSERT_AFTER(last, item, next);
     }
@@ -191,7 +232,25 @@ esp_err_t esp_qcloud_device_add_param(const char *id, esp_qcloud_param_val_type_
     return ESP_OK;
 }
 
-esp_err_t esp_qcloud_device_add_cb(const esp_qcloud_get_param_t get_param_cb,
+esp_err_t esp_qcloud_device_add_action_cb(const char *action_id, const esp_qcloud_action_cb_t action_cb)
+{
+    esp_qcloud_action_t *item = ESP_QCLOUD_CALLOC(1, sizeof(esp_qcloud_action_t));
+
+    item->id = strdup(action_id);
+    item->action_cb = action_cb;
+
+    esp_qcloud_action_t *last = SLIST_FIRST(&g_action_list);
+
+    if (last == NULL) {
+        SLIST_INSERT_HEAD(&g_action_list, item, next);
+    } else {
+        SLIST_INSERT_AFTER(last, item, next);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t esp_qcloud_device_add_property_cb(const esp_qcloud_get_param_t get_param_cb,
                                    const esp_qcloud_set_param_t set_param_cb)
 {
     g_esp_qcloud_get_param = get_param_cb;
@@ -242,7 +301,7 @@ esp_err_t esp_qcloud_handle_get_param(const cJSON *request_data, cJSON *reply_da
     esp_err_t err = ESP_FAIL;
 
     esp_qcloud_param_t *param;
-    SLIST_FOREACH(param, &g_param_list, next) {
+    SLIST_FOREACH(param, &g_property_list, next) {
         /* Check if command starts with buf */
         err = g_esp_qcloud_get_param(param->id, &param->value);
         ESP_QCLOUD_ERROR_BREAK(err != ESP_OK, "esp_qcloud_get_param, id: %s", param->id);
@@ -258,5 +317,19 @@ esp_err_t esp_qcloud_handle_get_param(const cJSON *request_data, cJSON *reply_da
         }
     }
 
+    return err;
+}
+
+esp_err_t esp_qcloud_operate_action(esp_qcloud_method_t *action_handle, const char *action_id, char *params)
+{
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+
+    esp_qcloud_action_t *action;
+    SLIST_FOREACH(action, &g_action_list, next) {
+        if(!strcmp(action->id, action_id)){
+            return action->action_cb(action_handle, params);
+        }
+    }
+    ESP_LOGE(TAG, "The callback function of <%s> was not found, Please check <esp_qcloud_device_add_action_cb>", action_id);
     return err;
 }

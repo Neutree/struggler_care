@@ -16,22 +16,22 @@
 #include "esp_qcloud_iothub.h"
 #include "esp_qcloud_prov.h"
 
-#include "driver/gpio.h"
-#include "stdio.h"
-// #include "light_driver.h"
+#include "light_driver.h"
+
+#ifdef CONFIG_BT_ENABLE
+#include "esp_bt.h"
+#endif
 
 static const char *TAG = "app_main";
-
-
 
 #define POWER_CONTORL_GPIO 22
 #define POWER_CONTORL_GPIO_SEL  (1ULL<<POWER_CONTORL_GPIO)
 #define POWER_STATUS_GPIO  21
 #define POWER_STATUS_GPIO_SEL  (1ULL<<POWER_STATUS_GPIO)
 
-#define ESP_INTR_FLAG_DEFAULT 0
+extern esp_err_t esp_qcloud_iothub_report_all_property(void);
 
-extern esp_err_t esp_qcloud_iothub_report_property();
+#define ESP_INTR_FLAG_DEFAULT 0
 
 typedef enum
 {
@@ -167,7 +167,7 @@ static void gpio_task_example(void* arg)
         if(g_is_need_report_property)
         {
             ESP_LOGI(TAG, "===g_is_need_report_property now upload property");
-            err = esp_qcloud_iothub_report_property();
+            err = esp_qcloud_iothub_report_all_property();
             if(err != ESP_OK)
                 ESP_LOGW(TAG, "esp_qcloud_iothub_report_property error:%d", err);
             g_is_need_report_property = false;
@@ -212,10 +212,11 @@ void remote_pc_contorl_init()
 
 /* Event handler for catching QCloud events */
 static void event_handler(void *arg, esp_event_base_t event_base,
-                          int event_id, void *event_data)
+                          int32_t event_id, void *event_data)
 {
     switch (event_id) {
         case QCLOUD_EVENT_IOTHUB_INIT_DONE:
+            esp_qcloud_iothub_report_device_info();
             ESP_LOGI(TAG, "QCloud Initialised");
             break;
 
@@ -225,14 +226,18 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
         case QCLOUD_EVENT_IOTHUB_UNBOND_DEVICE:
             ESP_LOGW(TAG, "Device unbound with iothub");
-            esp_qcloud_storage_erase(CONFIG_QCLOUD_NVS_NAMESPACE);
+            esp_qcloud_wifi_reset();
             esp_restart();
             break;
 
         case QCLOUD_EVENT_IOTHUB_BIND_EXCEPTION:
             ESP_LOGW(TAG, "Device bind fail");
-            esp_qcloud_storage_erase(CONFIG_QCLOUD_NVS_NAMESPACE);
+            esp_qcloud_wifi_reset();
             esp_restart();
+            break;
+            
+        case QCLOUD_EVENT_IOTHUB_RECEIVE_STATUS:
+            ESP_LOGI(TAG, "receive status message: %s",(char*)event_data);
             break;
 
         default:
@@ -245,11 +250,20 @@ static esp_err_t get_wifi_config(wifi_config_t *wifi_cfg, uint32_t wait_ms)
     ESP_QCLOUD_PARAM_CHECK(wifi_cfg);
 
     if (esp_qcloud_storage_get("wifi_config", wifi_cfg, sizeof(wifi_config_t)) == ESP_OK) {
+
+#ifdef CONFIG_BT_ENABLE
+    esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
+#endif
+
         return ESP_OK;
     }
 
+    /**< Reset wifi and restart wifi */
+    esp_wifi_restore();
+    esp_wifi_start();
+
     /**< The yellow light flashes to indicate that the device enters the state of configuring the network */
-    // light_driver_breath_start(128, 128, 0); /**< yellow blink */
+    light_driver_breath_start(128, 128, 0); /**< yellow blink */
 
     /**< Note: Smartconfig and softapconfig working at the same time will affect the configure network performance */
 
@@ -269,6 +283,11 @@ static esp_err_t get_wifi_config(wifi_config_t *wifi_cfg, uint32_t wait_ms)
     esp_qcloud_prov_smartconfig_start(SC_TYPE_ESPTOUCH_AIRKISS);
 #endif
 
+#ifdef CONFIG_LIGHT_PROVISIONING_BLECONFIG
+    char local_name[32 + 1] = CONFIG_LIGHT_PROVISIONING_BLECONFIG_NAME;
+    esp_qcloud_prov_bleconfig_start(BLECONFIG_TYPE_ESPRESSIF_TENCENT, local_name);
+#endif
+
     ESP_ERROR_CHECK(esp_qcloud_prov_wait(wifi_cfg, wait_ms));
 
 #ifdef CONFIG_LIGHT_PROVISIONING_SMARTCONFIG
@@ -283,7 +302,7 @@ static esp_err_t get_wifi_config(wifi_config_t *wifi_cfg, uint32_t wait_ms)
     esp_qcloud_storage_set("wifi_config", wifi_cfg, sizeof(wifi_config_t));
 
     /**< Configure the network successfully to stop the light flashing */
-    // light_driver_breath_stop(); /**< stop blink */
+    light_driver_breath_stop(); /**< stop blink */
 
     return ESP_OK;
 }
@@ -342,14 +361,14 @@ void app_main()
     /**< Configure the version of the device, and use this information to determine whether to OTA */
     ESP_ERROR_CHECK(esp_qcloud_device_add_fw_version("0.0.1"));
     /**< Register the properties of the device */
-    ESP_ERROR_CHECK(esp_qcloud_device_add_param("power", QCLOUD_VAL_TYPE_BOOLEAN));
-    ESP_ERROR_CHECK(esp_qcloud_device_add_param("power_off_force", QCLOUD_VAL_TYPE_BOOLEAN));
-    // ESP_ERROR_CHECK(esp_qcloud_device_add_param("hue", QCLOUD_VAL_TYPE_INTEGER));
-    // ESP_ERROR_CHECK(esp_qcloud_device_add_param("saturation", QCLOUD_VAL_TYPE_INTEGER));
-    // ESP_ERROR_CHECK(esp_qcloud_device_add_param("value", QCLOUD_VAL_TYPE_INTEGER));
-    /**< The processing function of the communication between the device and the server */
-    ESP_ERROR_CHECK(esp_qcloud_device_add_cb(light_get_param, light_set_param));
+    ESP_ERROR_CHECK(esp_qcloud_device_add_property("power", QCLOUD_VAL_TYPE_BOOLEAN));
+    ESP_ERROR_CHECK(esp_qcloud_device_add_property("power_off_force", QCLOUD_VAL_TYPE_BOOLEAN));
+    // ESP_ERROR_CHECK(esp_qcloud_device_add_property("saturation", QCLOUD_VAL_TYPE_INTEGER));
+    // ESP_ERROR_CHECK(esp_qcloud_device_add_property("value", QCLOUD_VAL_TYPE_INTEGER));
 
+    /**< The processing function of the communication between the device and the server */
+    ESP_ERROR_CHECK(esp_qcloud_device_add_property_cb(light_get_param, light_set_param));
+    
     /**
      * @brief Initialize Wi-Fi.
      */

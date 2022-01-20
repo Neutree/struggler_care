@@ -15,21 +15,21 @@
     - [x] softap
     - [x] airkiss
     - [x] esp-touch v1
+    - [x] ble
     - [x] provisioning softap
     - [ ] esp-touch v2
-    - [ ] provisioning ble
-
+    
 - **认证方式**
 
     - [x] 密钥认证
-    - [ ] 证书认证
+    - [x] 证书认证
     - [ ] 动态注册
 
 - **业务功能**
 
     - [x] 状态上报与下发
     - [x] OTA升级
-    - [ ] 事件上报
+    - [x] 事件上报
     - [ ] 网关
 
 - **调试功能**
@@ -48,21 +48,18 @@
 
     - ESP32
     - ESP32-S2
-
-- **开发板** 
-    
-    - [ESP32-DevKitC](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32/hw-reference/esp32/get-started-devkitc.html)
-    - [ESP32-S2-Saola-1开发板](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html)
-
+    - ESP32-C3
 
 # <span id = "compileprepare">2. IDF 环境搭建</span>
 
 - 可以参考 [ESP-IDF编程指南-快速入门](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32/get-started/index.html#get-started-setup-toolchain) 快速完成工具链与环境的搭建
-- 在构建工程之前需将 `ESP-IDF` 切换到 `release/v4.2 分支` 
+- 构建工程之前需将 `ESP-IDF` 切换到 `release/v4.3 分支`。
 
     ```shell
     cd  $IDF_PATH 
-    git checkout release/v4.2 
+
+    git checkout release/v4.3 
+
     git submodule update --init --recursive
     ```
 
@@ -124,6 +121,9 @@
 
         #choose esp32s2
         idf.py set-target esp32s2
+
+        #choose esp32c3
+        idf.py set-target esp32c3
         ```
 
     - **更改 `Partition`**
@@ -166,7 +166,7 @@
             (DEVICE_NAME) Device Name
             (DEVICE_SECRET) Device Secret
             ESP QCloud OTA Config  --->
-            QCloud utils  --->
+            ESP QCloud utils  --->
             ESP QCloud Log Config  --->
             UART for console input (UART0)  --->
             ```
@@ -180,7 +180,7 @@
 
     - **通过量产工具配置**
     
-        请参考量产工具目录下的 [文档](./cofig/mass_mfg/README.md) ，另外需要 <b>开启</b> `ESP QCloud Mass Manufacture` 选项。
+        请参考量产工具目录下的 [文档](./config/mass_mfg/README.md) ，另外需要 <b>开启</b> `ESP QCloud Mass Manufacture` 选项。
 
 
 3. **构建项目**
@@ -313,3 +313,4 @@
 
     - [乐鑫物联网学院](https://space.bilibili.com/538078399)
     - [腾讯云大学](https://cloud.tencent.com/edu/learning)
+    - [开发参考视频](https://www.bilibili.com/video/BV1Hi4y157mG?from=search&seid=16774267987685056247)

@@ -36,7 +36,7 @@
 static const char *TAG = "esp_qcloud_prov_softapconfig";
 
 static void prov_event_handler(void *arg, esp_event_base_t event_base,
-                               int event_id, void *event_data)
+                               int32_t event_id, void *event_data)
 {
     switch (event_id) {
         case WIFI_PROV_START:
@@ -82,7 +82,7 @@ esp_err_t esp_qcloud_prov_softapconfig_start(softapconfig_type_t type,
     esp_err_t err   = ESP_OK;
     const char *pop = NULL;
 
-    if (SOFTAPCONFIG_TYPE_TENCENT & type) {
+    if ((SOFTAPCONFIG_TYPE_ESPRESSIF & type) || (SOFTAPCONFIG_TYPE_ESPRESSIF_TENCENT & type)) {
         ESP_ERROR_CHECK(esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &prov_event_handler, NULL));
 
         /* Configuration for the provisioning manager */
@@ -121,7 +121,7 @@ esp_err_t esp_qcloud_prov_softapconfig_start(softapconfig_type_t type,
         wifi_prov_mgr_endpoint_create("custom-data");
 
         /* Start provisioning service */
-        ESP_ERROR_CHECK(wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, pop, ssid, password));
+        ESP_ERROR_CHECK(wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_0, pop, ssid, password));
 
         /* The handler for the optional endpoint created above.
          * This call must be made after starting the provisioning, and only if the endpoint
@@ -130,7 +130,7 @@ esp_err_t esp_qcloud_prov_softapconfig_start(softapconfig_type_t type,
         wifi_prov_mgr_endpoint_register("custom-data", esp_qcloud_prov_data_handler, NULL);
     }
 
-    if (SOFTAPCONFIG_TYPE_TENCENT & type) {
+    if ((SOFTAPCONFIG_TYPE_TENCENT & type) || (SOFTAPCONFIG_TYPE_ESPRESSIF_TENCENT & type)) {
         esp_qcloud_prov_udp_server_start();
     }
 

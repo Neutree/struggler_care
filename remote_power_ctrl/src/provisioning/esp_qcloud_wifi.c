@@ -25,6 +25,9 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
+#include "esp_qcloud_storage.h"
+#include "esp_qcloud_utils.h"
+
 #define QCLOUD_PROV_EVENT_STA_CONNECTED  BIT0
 
 static const char *TAG  = "esp_qcloud_wifi";
@@ -32,7 +35,7 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 
 /* Event handler for catching system events */
 static void event_handler(void *arg, esp_event_base_t event_base,
-                          int event_id, void *event_data)
+                          int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
@@ -42,6 +45,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         /* Signal main application to continue execution */
         xEventGroupSetBits(s_wifi_event_group, QCLOUD_PROV_EVENT_STA_CONNECTED);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *disconnected = (wifi_event_sta_disconnected_t*) event_data;
+        ESP_LOGE(TAG, "Disconnect reason : %d", disconnected->reason);
+        if(disconnected->reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT){
+            ESP_LOGE(TAG, "wrong password");
+            return;
+        }
         ESP_LOGI(TAG, "Disconnected. Connecting to the AP again...");
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
@@ -57,9 +66,9 @@ esp_err_t esp_qcloud_wifi_init(void)
 
     s_wifi_event_group = xEventGroupCreate();
 
-    ESP_ERROR_CHECK(esp_netif_init());
+    esp_netif_init();
 
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -70,7 +79,6 @@ esp_err_t esp_qcloud_wifi_init(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
     
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
 
     return ESP_OK;
 }
@@ -79,9 +87,22 @@ esp_err_t esp_qcloud_wifi_start(const wifi_config_t *conf)
 {
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, (wifi_config_t *)conf));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     /* Wait for success event */
     xEventGroupWaitBits(s_wifi_event_group, QCLOUD_PROV_EVENT_STA_CONNECTED, true, true, portMAX_DELAY);
 
     return ESP_OK;
+}
+
+esp_err_t esp_qcloud_wifi_reset(void)
+{
+    esp_err_t err = ESP_FAIL;
+    err = esp_wifi_restore();
+    ESP_QCLOUD_ERROR_CHECK(err != ESP_OK, err, "esp_wifi_restore fail, reason: %s", esp_err_to_name(err));
+    
+    err = esp_qcloud_storage_erase("wifi_config");
+    ESP_QCLOUD_ERROR_CHECK(err != ESP_OK, err, "esp_qcloud_storage_erase fail, reason: %s", esp_err_to_name(err));
+
+    return err;
 }
